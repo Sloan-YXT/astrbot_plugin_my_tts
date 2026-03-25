@@ -1,0 +1,106 @@
+{
+  "enabled": {
+    "description": "启用插件",
+    "type": "bool",
+    "default": true,
+    "hint": "总开关，关闭后不会自动触发 TTS，但 /say 命令仍可用"
+  },
+  "tts_settings": {
+    "description": "TTS 服务设置",
+    "type": "object",
+    "hint": "配置本地 TTS 服务器地址和参数",
+    "items": {
+      "tts_host": {
+        "description": "TTS 服务器 IP:端口",
+        "type": "string",
+        "default": "127.0.0.1:8092",
+        "hint": "本地 TTS 服务器地址，如 192.168.1.100:8092"
+      },
+      "emotion_threshold": {
+        "description": "感情触发阈值",
+        "type": "float",
+        "default": 0.7,
+        "hint": "LLM 评估感情强烈度(0-1)，大于此值触发 TTS。0=每次触发，1=永不触发"
+      },
+      "llm_provider_id": {
+        "description": "LLM 提供商（情感分析+翻译）",
+        "type": "string",
+        "hint": "用于感情分析和日文翻译的 LLM，留空使用当前对话提供商",
+        "_special": "select_provider",
+        "default": ""
+      },
+      "timeout": {
+        "description": "TTS 请求超时（秒）",
+        "type": "int",
+        "default": 30,
+        "hint": "TTS 服务器请求超时时间"
+      },
+      "history_count": {
+        "description": "历史对话条数",
+        "type": "int",
+        "default": 5,
+        "hint": "传给 LLM 的历史对话轮数(1-20)，用于更准确地判断情绪和语气。越多越准但消耗更多 token"
+      },
+      "translate_hint": {
+        "description": "翻译提示词",
+        "type": "string",
+        "default": "",
+        "hint": "翻译偏好/人设提示，例如：「鲁迪乌斯」翻译为「ルディ」；语气要亲昵可爱。留空则纯翻译"
+      },
+      "name_mapping": {
+        "description": "用户昵称→角色名映射",
+        "type": "object",
+        "hint": "平台昵称对应的角色名，翻译时会自动使用角色名。如 lowgent→鲁迪乌斯",
+        "items": {}
+      },
+      "min_tts_chars": {
+        "description": "TTS 最少字数",
+        "type": "int",
+        "default": 12,
+        "hint": "要求主 LLM 在 [TTS:] 标记内输出不少于此字数的朗读文本。回复过短时 LLM 会自动扩写"
+      },
+      "emotion_speed": {
+        "description": "情绪语速映射",
+        "type": "object",
+        "hint": "每种情绪对应的默认语速(0.8-1.5)，LLM 会以此为基准微调",
+        "items": {
+          "neutral": {
+            "description": "neutral 语速",
+            "type": "float",
+            "default": 1.0
+          },
+          "gentle": {
+            "description": "gentle 语速",
+            "type": "float",
+            "default": 1.05
+          },
+          "serious": {
+            "description": "serious 语速",
+            "type": "float",
+            "default": 1.0
+          },
+          "confident": {
+            "description": "confident 语速",
+            "type": "float",
+            "default": 1.0
+          },
+          "surprised": {
+            "description": "surprised 语速",
+            "type": "float",
+            "default": 0.95
+          },
+          "happy": {
+            "description": "happy 语速",
+            "type": "float",
+            "default": 0.95
+          },
+          "sad": {
+            "description": "sad 语速",
+            "type": "float",
+            "default": 1.1
+          }
+        }
+      }
+    }
+  }
+}

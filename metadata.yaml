@@ -1,0 +1,9 @@
+name: astrbot_plugin_my_tts
+display_name: My TTS 语音合成
+desc: 基于本地 TTS 服务的日文语音合成插件，自动根据感情强度触发语音回复
+help: |
+  自动检测 Bot 回复的感情强烈程度，超过阈值时自动将回复翻译为日文并合成语音发送。
+  命令：/say <文本> — 直接合成语音
+version: v1.0.0
+author: "utt.yao"
+repo: ""
