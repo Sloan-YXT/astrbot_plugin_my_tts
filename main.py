@@ -47,6 +47,7 @@ _DEFAULT_PARAMS = {
 _DEFAULT_SAY_PARAMS = {
     "emotion": "neutral",
     "style_weight": 1.0,
+    "expanded_text": "",
     "japanese": "",
 }
 
@@ -73,15 +74,16 @@ _ANALYZE_SYSTEM = """\
 
 _ANALYZE_SAY_SYSTEM = """\
 你是语音合成参数分析器兼中日翻译器，不是聊天机器人。
-根据给定文本判断适合的情绪参数，并将文本翻译为日文。
+根据给定文本判断适合的情绪参数，如果文本过短则扩写为适合朗读的完整口语，然后翻译为日文。
 
 你必须输出且仅输出一个 JSON 对象，格式如下（不要 markdown 代码块、不要解释）：
-{{"emotion": "xxx", "style_weight": 0.0~2.0, "japanese": "..."}}
+{{"emotion": "xxx", "style_weight": 0.0~2.0, "expanded_text": "...", "japanese": "..."}}
 
 字段说明：
 - emotion: 从以下选项中选择最匹配的：neutral, gentle, serious, confident, surprised, happy, sad
 - style_weight: 情绪夸张程度。平淡→0.3~0.6，正常→0.6~1.0，强烈→1.0~1.5，极端→1.5~2.0
-- japanese: 将文本翻译为日文。只输出日文，不要解释。翻译语气要与 emotion 一致
+- expanded_text: 如果原文不少于{min_chars}字则原样填入；否则扩写为口语化的完整表达（不少于{min_chars}字）
+- japanese: 将 expanded_text 翻译为日文。只输出日文，不要解释。翻译语气要与 emotion 一致
 {translate_hint}"""
 
 _TRANSLATE_SYSTEM = """\
@@ -386,6 +388,7 @@ class MyTTSPlugin(Star):
     def _fmt_system(self, template: str, user_name: str = "") -> str:
         return template.format(
             translate_hint=self._build_translate_hint(user_name),
+            min_chars=self.min_tts_chars,
         )
 
     async def _llm_call(self, provider_id: str, prompt: str, system: str) -> str:
