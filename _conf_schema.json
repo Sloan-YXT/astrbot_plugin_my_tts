@@ -58,48 +58,6 @@
         "type": "int",
         "default": 12,
         "hint": "要求主 LLM 在 [TTS:] 标记内输出不少于此字数的朗读文本。回复过短时 LLM 会自动扩写"
-      },
-      "emotion_speed": {
-        "description": "情绪语速映射",
-        "type": "object",
-        "hint": "每种情绪对应的默认语速(0.8-1.5)，LLM 会以此为基准微调",
-        "items": {
-          "neutral": {
-            "description": "neutral 语速",
-            "type": "float",
-            "default": 1.0
-          },
-          "gentle": {
-            "description": "gentle 语速",
-            "type": "float",
-            "default": 1.05
-          },
-          "serious": {
-            "description": "serious 语速",
-            "type": "float",
-            "default": 1.0
-          },
-          "confident": {
-            "description": "confident 语速",
-            "type": "float",
-            "default": 1.0
-          },
-          "surprised": {
-            "description": "surprised 语速",
-            "type": "float",
-            "default": 0.95
-          },
-          "happy": {
-            "description": "happy 语速",
-            "type": "float",
-            "default": 0.95
-          },
-          "sad": {
-            "description": "sad 语速",
-            "type": "float",
-            "default": 1.1
-          }
-        }
       }
     }
   }

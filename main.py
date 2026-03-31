@@ -5,6 +5,7 @@ import uuid
 import traceback
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import aiohttp
@@ -24,29 +25,18 @@ _CMD_PATTERN = re.compile(r"(?:^|[\s\])])/\S")
 _TTS_TAG_PATTERN = re.compile(r"\[TTS[:：]([\s\S]*?)\]", re.IGNORECASE)
 
 _EMOTIONS = frozenset(
-    ["neutral", "gentle", "serious", "confident", "surprised", "happy", "sad"]
+    ["neutral", "gentle", "serious", "confident", "surprised", "happy", "sad",
+     "angry", "tsundere", "shy"]
 )
-
-_DEFAULT_EMOTION_SPEED = {
-    "neutral": 1.0,
-    "gentle": 1.05,
-    "serious": 1.0,
-    "confident": 1.0,
-    "surprised": 0.95,
-    "happy": 0.95,
-    "sad": 1.1,
-}
 
 _DEFAULT_PARAMS = {
     "emotion_score": 0.0,
     "emotion": "neutral",
-    "style_weight": 1.0,
     "japanese": "",
 }
 
 _DEFAULT_SAY_PARAMS = {
     "emotion": "neutral",
-    "style_weight": 1.0,
     "expanded_text": "",
     "japanese": "",
 }
@@ -62,12 +52,11 @@ _ANALYZE_SYSTEM = """\
 根据对话内容判断 Bot 最新回复的情绪参数，并将回复翻译为日文。
 
 你必须输出且仅输出一个 JSON 对象，格式如下（不要 markdown 代码块、不要解释）：
-{{"emotion_score": 0.0~1.0, "emotion": "xxx", "style_weight": 0.0~2.0, "japanese": "..."}}
+{{"emotion_score": 0.0~1.0, "emotion": "xxx", "japanese": "..."}}
 
 字段说明：
 - emotion_score: 感情强烈程度，0=完全平淡，1=极其强烈
-- emotion: 从以下选项中选择最匹配的：neutral, gentle, serious, confident, surprised, happy, sad
-- style_weight: 情绪夸张程度。平淡→0.3~0.6，正常→0.6~1.0，强烈→1.0~1.5，极端→1.5~2.0
+- emotion: 从以下选项中选择最匹配的：neutral, gentle, serious, confident, surprised, happy, sad, angry, tsundere, shy
 - japanese: 将 Bot 回复翻译为日文。只输出日文，不要解释。翻译语气要与 emotion 一致
 {translate_hint}
 注意：历史对话仅供理解上下文，越早的对话权重越低，重点关注最新一轮对话。"""
@@ -77,11 +66,10 @@ _ANALYZE_SAY_SYSTEM = """\
 根据给定文本判断适合的情绪参数，如果文本过短则扩写为适合朗读的完整口语，然后翻译为日文。
 
 你必须输出且仅输出一个 JSON 对象，格式如下（不要 markdown 代码块、不要解释）：
-{{"emotion": "xxx", "style_weight": 0.0~2.0, "expanded_text": "...", "japanese": "..."}}
+{{"emotion": "xxx", "expanded_text": "...", "japanese": "..."}}
 
 字段说明：
-- emotion: 从以下选项中选择最匹配的：neutral, gentle, serious, confident, surprised, happy, sad
-- style_weight: 情绪夸张程度。平淡→0.3~0.6，正常→0.6~1.0，强烈→1.0~1.5，极端→1.5~2.0
+- emotion: 从以下选项中选择最匹配的：neutral, gentle, serious, confident, surprised, happy, sad, angry, tsundere, shy
 - expanded_text: 如果原文不少于{min_chars}字则原样填入；否则扩写为口语化的完整表达（不少于{min_chars}字）
 - japanese: 将 expanded_text 翻译为日文。只输出日文，不要解释。翻译语气要与 emotion 一致
 {translate_hint}"""
@@ -154,13 +142,6 @@ class MyTTSPlugin(Star):
         self.history_count = max(int(tts.get("history_count", 5)), 1)
         self.min_tts_chars = max(int(tts.get("min_tts_chars", 12)), 1)
 
-        # emotion → speed 查表
-        speed_cfg = tts.get("emotion_speed", {}) or {}
-        self.emotion_speed = {
-            e: float(speed_cfg.get(e, _DEFAULT_EMOTION_SPEED[e]))
-            for e in _DEFAULT_EMOTION_SPEED
-        }
-
         self._tts_block = _TTS_OUTPUT_BLOCK.format(min_chars=self.min_tts_chars)
         self._tts_standalone = _TTS_STANDALONE_HINT.format(min_chars=self.min_tts_chars)
 
@@ -170,6 +151,8 @@ class MyTTSPlugin(Star):
         self.data_dir = StarTools.get_data_dir("astrbot_plugin_my_tts")
         self.temp_dir = self.data_dir / "temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self.audio_dir = self.data_dir / "audio_history"
+        self.audio_dir.mkdir(parents=True, exist_ok=True)
         self._cleanup_stale_temp()
 
         self._session: aiohttp.ClientSession | None = None
@@ -250,7 +233,9 @@ class MyTTSPlugin(Star):
         origin = event.unified_msg_origin
         self._pending_tts[origin] = tts_text
         # 从 LLM 输出中剥离标记，防止泄露到消息/历史
-        resp.completion_text = _TTS_TAG_PATTERN.sub("", text).strip()
+        cleaned = _TTS_TAG_PATTERN.sub("", text)
+        cleaned = re.sub(r"\n{2,}", "\n", cleaned).strip()
+        resp.completion_text = cleaned
         logger.info(f"[MyTTS] 提取 TTS 文本: {tts_text[:50]}")
 
     # ── 历史对话管理 ──
@@ -319,7 +304,8 @@ class MyTTSPlugin(Star):
         if not m:
             return "", bot_reply
         tts_text = m.group(1).strip()
-        clean_reply = _TTS_TAG_PATTERN.sub("", bot_reply).strip()
+        clean_reply = _TTS_TAG_PATTERN.sub("", bot_reply)
+        clean_reply = re.sub(r"\n{2,}", "\n", clean_reply).strip()
         return tts_text, clean_reply
 
     @staticmethod
@@ -328,11 +314,13 @@ class MyTTSPlugin(Star):
         new_chain = []
         text_replaced = False
         for comp in res.chain:
-            if isinstance(comp, Plain) and comp.text and not text_replaced:
-                if clean_text:
-                    new_chain.append(Plain(clean_text))
-                text_replaced = True
-            elif not (isinstance(comp, Plain) and comp.text):
+            if isinstance(comp, Plain):
+                if not text_replaced:
+                    if clean_text:
+                        new_chain.append(Plain(clean_text))
+                    text_replaced = True
+                # 跳过所有后续 Plain（包括空白的）
+            else:
                 new_chain.append(comp)
         if not text_replaced and clean_text:
             new_chain.insert(0, Plain(clean_text))
@@ -372,7 +360,6 @@ class MyTTSPlugin(Star):
             params["emotion"] = "neutral"
         if "emotion_score" in params:
             params["emotion_score"] = _clamp(params["emotion_score"], 0.0, 1.0)
-        params["style_weight"] = _clamp(params.get("style_weight", 1.0), 0.0, 2.0)
         return params
 
     # ── LLM 调用 ──
@@ -438,15 +425,11 @@ class MyTTSPlugin(Star):
     async def _call_tts(
         self, text_jp: str,
         emotion: str = "neutral",
-        speed: float = 1.0,
-        style_weight: float = 1.0,
     ) -> Path:
         session = await self._get_session()
         payload = {
             "text": text_jp,
             "emotion": emotion,
-            "speed": round(_clamp(speed, 0.8, 1.5), 2),
-            "style_weight": round(_clamp(style_weight, 0.0, 2.0), 2),
         }
         logger.info(f"[MyTTS] TTS 请求: {payload}")
         async with session.post(f"http://{self.tts_host}/tts", json=payload) as resp:
@@ -458,6 +441,14 @@ class MyTTSPlugin(Star):
 
         wav_path = self.temp_dir / f"{uuid.uuid4().hex}.wav"
         wav_path.write_bytes(wav_data)
+
+        # 保存到历史目录
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_text = re.sub(r'[\\/:*?"<>|]', '_', text_jp[:30])
+        history_path = self.audio_dir / f"{ts}_{emotion}_{safe_text}.wav"
+        history_path.write_bytes(wav_data)
+        logger.info(f"[MyTTS] 音频已保存: {history_path.name}")
+
         return wav_path
 
     # ── TTS + 发送 ──
@@ -476,9 +467,8 @@ class MyTTSPlugin(Star):
             return
         logger.info(f"[MyTTS] 翻译: {jp}")
 
-        speed = self.emotion_speed.get(params["emotion"], 1.0)
         wav_path = await self._call_tts(
-            jp, params["emotion"], speed, params["style_weight"],
+            jp, params["emotion"],
         )
         try:
             record = Record.fromFileSystem(str(wav_path))
@@ -521,9 +511,8 @@ class MyTTSPlugin(Star):
             if not jp:
                 return None
 
-            speed = self.emotion_speed.get(params["emotion"], 1.0)
             wav_path = await self._call_tts(
-                jp, params["emotion"], speed, params["style_weight"],
+                jp, params["emotion"],
             )
             logger.info(f"[MyTTS] generate_speech 完成: {wav_path}")
             return wav_path
@@ -578,14 +567,18 @@ class MyTTSPlugin(Star):
             if not speak_text:
                 return
 
-        # 也从 chain 中清理残留的 [TTS:] 标记（防止泄露给用户）
+        # 清理 chain 中残留的标记和多余空白（包括好感度插件剥离后的空行）
         res = event.get_result()
         if res and res.chain:
             full_text = "".join(
                 c.text for c in res.chain if isinstance(c, Plain) and c.text
             )
-            if _TTS_TAG_PATTERN.search(full_text):
-                clean = _TTS_TAG_PATTERN.sub("", full_text).strip()
+            clean = _TTS_TAG_PATTERN.sub("", full_text)
+            clean = clean.replace("\u200b", "")              # 零宽空格
+            clean = re.sub(r"[ \t]+\n", "\n", clean)         # 行尾空白
+            clean = re.sub(r"\n{2,}", "\n", clean)           # 连续空行
+            clean = clean.strip()
+            if clean != full_text:
                 self._rebuild_chain(res, clean)
 
         user_name = event.get_sender_name() or "用户"
@@ -607,7 +600,7 @@ class MyTTSPlugin(Star):
                 score = params["emotion_score"]
                 logger.info(
                     f"[MyTTS] 情感: score={score}, emotion={params['emotion']}, "
-                    f"sw={params['style_weight']}, 阈值={self.emotion_threshold}"
+                    f"阈值={self.emotion_threshold}"
                 )
                 if score < self.emotion_threshold:
                     return
